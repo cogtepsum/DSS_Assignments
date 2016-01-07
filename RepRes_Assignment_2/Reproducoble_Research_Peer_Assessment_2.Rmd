@@ -1,0 +1,93 @@
+---
+title: 'Population health and economic consequences of severe weather events in US'
+output: html_document
+keep_md: true
+---
+
+In this report we aim to describe the effect of severe weather events on population health and economics. We will use the U.S. National Oceanic and Atmospheric Administration's (NOAA) storm database that can be obtained [here]("https://d396qusza40orc.cloudfront.net/repdata%2Fdata%2FStormData.csv.bz2"). Our goal is to show, what types of events are most harmful with respect to populations health or have the greatest economic consequences. We will consider these effects across the United States in a time perspective from 1950 to 2011.
+
+## Data Processing
+
+### Reading data into R
+
+First we read in the data from a compressed csv file with `read.csv()` function that can automatically handle files compressed with bz2.
+```{r, cache=TRUE}
+events <- read.csv("StormData.csv.bz2")
+```
+
+### Preprocessing data
+
+After that let's look at the dimensions and summary of the data.
+```{r, cache=TRUE}
+dim(events)
+```
+```{r, cache=TRUE}
+str(events)
+```
+
+We can see that there is a variable `EVTYPE` with 985 values that represents type of weather event and varibles representing defferent types of damage: `FATALITIES`, `INJURIES` for population health damage and `PROPDMG`, `CROPDMG` for economic damage. Let's subset initial data to contain these variables only.
+```{r}
+eventsdamage <- subset(events, select = c('EVTYPE', 'FATALITIES', 'INJURIES', 'PROPDMG', 'CROPDMG'))
+head(eventsdamage)
+```
+
+We will estimate damage by its summary value across all records. That is why there is a need for using `ddply` function from `plyr`. This function will now create a new data set with summary damages for each type of event.
+```{r, cache=TRUE}
+library(plyr)
+sums <- ddply(eventsdamage, .(EVTYPE), numcolwise(sum))
+head(sums)
+```
+
+One can spot some rows here that have zeros in each column. These are definitely not interesting for our purposes and we're deleting them from our dataset.
+```{r}
+notempty <- sums[apply(sums[, -1], 1, function(x) !all(x==0)), ]
+```
+
+Also, we will create a new variable with total economic damage, since unlike health damage damages to property and to crops can be treated with the same scale.
+```{r}
+notempty$DAMAGE <- notempty$PROPDMG + notempty$CROPDMG
+dim(notempty)
+head(notempty)
+```
+
+We still have 488 rows which is way too much for exploratory analysis. So, we need to consider only events with highest damage. Let's calculate the 97% percentile for each type of damage and create a separate subset of top-3% events for each type of damage.
+```{r}
+topfatalities <- notempty[which(notempty$FATALITIES > quantile(notempty$FATALITIES, 0.97)), c('EVTYPE', 'FATALITIES')]
+topinjuries <- notempty[which(notempty$INJURIES > quantile(notempty$INJURIES, 0.97)), c('EVTYPE', 'INJURIES')]
+topdmg <- notempty[which(notempty$DAMAGE > quantile(notempty$DAMAGE, 0.97)), c('EVTYPE', 'DAMAGE')]
+```
+
+Let's see how many events are in one group:
+```{r}
+dim(topfatalities)
+```
+
+15 events is alright for plotting. Now we're all set for the exploratory data analysis!
+
+## Results
+
+### Damage to population health
+
+In order to show how do different weather events affect population health we can make a barplot. To make plots we will use `ggplot2` package and to combine plots we will use `gridExtra` package.
+
+```{r, warning=F}
+library(ggplot2)
+library(gridExtra)
+
+fatplt <- ggplot(topfatalities, aes(EVTYPE, FATALITIES)) + geom_bar(stat = 'identity') + theme(axis.text.x=element_text(angle=90,hjust=1,vjust=0.5)) + xlab('Type of event') + ylab('Fatalities')
+injplt <- ggplot(topinjuries, aes(EVTYPE, INJURIES)) + geom_bar(stat = 'identity') + theme(axis.text.x=element_text(angle=90,hjust=1,vjust=0.5)) + xlab('Type of event') + ylab('Injuries')
+
+grid.arrange(fatplt, injplt, ncol=2)
+```
+
+This plot tells us that Tornado is way ahead from all the other events by its damage to population health. Excessive heat seems to be in a second position.
+
+### Damage to economics
+
+Let's now explore economic damage of different weather events. We will use similar bar plot.
+```{r}
+damageplt <- ggplot(topdmg, aes(EVTYPE, DAMAGE)) + geom_bar(stat = 'identity') + theme(axis.text.x=element_text(angle=90,hjust=1,vjust=0.5)) + xlab('Type of event') + ylab('Total damage')
+print(damageplt)
+```
+
+We can see that tornado is still the most harmful, followed by thunderstorm wind, flash flood, hail and flood.
